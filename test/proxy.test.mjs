@@ -130,7 +130,7 @@ test("forwards xAI subscription requests for both API adapters", async (t) => {
   assert.ok(received.every(({ headers }) => headers.authorization === "Bearer xai-oauth-token"));
 });
 
-test("routes all four supported custom APIs through one proxy", async (t) => {
+test("routes all four supported custom APIs from raw upstream URLs", async (t) => {
   const received = [];
   const createUpstream = (name) => http.createServer((req, res) => {
     const chunks = [];
@@ -152,7 +152,7 @@ test("routes all four supported custom APIs through one proxy", async (t) => {
   const targets = [
     {
       api: "openai-completions",
-      route: encodeURIComponent(`http://127.0.0.1:${firstPort}/vendor/openai/v1`),
+      route: `http://127.0.0.1:${firstPort}/vendor/openai/v1`,
       path: "/chat/completions?trace=1",
       auth: ["authorization", "Bearer openai-completions-key"],
       body: '{"model":"chat-model","messages":[],"stream":true}',
@@ -160,7 +160,7 @@ test("routes all four supported custom APIs through one proxy", async (t) => {
     },
     {
       api: "openai-responses",
-      route: encodeURIComponent(`http://127.0.0.1:${secondPort}/api/openai/v1`),
+      route: `http://127.0.0.1:${secondPort}/api/openai/v1`,
       path: "/responses",
       auth: ["authorization", "Bearer openai-responses-key"],
       body: '{"model":"responses-model","input":"hello","stream":true}',
@@ -168,7 +168,7 @@ test("routes all four supported custom APIs through one proxy", async (t) => {
     },
     {
       api: "anthropic-messages",
-      route: encodeURIComponent(`http://127.0.0.1:${firstPort}/vendor/anthropic`),
+      route: `http://127.0.0.1:${firstPort}/vendor/anthropic`,
       path: "/v1/messages",
       auth: ["x-api-key", "anthropic-key"],
       body: '{"model":"claude-model","messages":[],"max_tokens":1,"stream":true}',
@@ -176,7 +176,7 @@ test("routes all four supported custom APIs through one proxy", async (t) => {
     },
     {
       api: "google-generative-ai",
-      route: encodeURIComponent(`http://127.0.0.1:${secondPort}/api/google/v1beta`),
+      route: `http://127.0.0.1:${secondPort}/api/google/v1beta`,
       path: "/models/gemini-model:streamGenerateContent?alt=sse",
       auth: ["x-goog-api-key", "google-key"],
       body: '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}',
@@ -204,7 +204,7 @@ test("routes all four supported custom APIs through one proxy", async (t) => {
     assert.equal(received[index].headers[target.auth[0]], target.auth[1], target.api);
     assert.equal(received[index].body, target.body, target.api);
   }
-  assert.equal((await fetch(`http://127.0.0.1:${proxyPort}/route_map/ftp%3A%2F%2Fexample.com/responses`)).status, 404);
+  assert.equal((await fetch(`http://127.0.0.1:${proxyPort}/route_map/ftp://example.com/responses`)).status, 404);
 });
 
 test("forwards WebSocket upgrades", async (t) => {

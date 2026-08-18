@@ -16,30 +16,28 @@ function parseUpstream(value, name) {
   return upstream;
 }
 
+function routeFromBase(upstream, path) {
+  const prefix = upstream.pathname.replace(/\/+$/, "");
+  return { upstream, path: `${prefix}${path}` || "/" };
+}
+
 function selectRoute(rawUrl, codex, anthropic, xai) {
   const incoming = new URL(rawUrl || "/", "http://proxy.local");
   const path = `${incoming.pathname}${incoming.search}`;
-  if (incoming.pathname.startsWith("/codex/")) return { upstream: codex, path };
-  if (incoming.pathname.startsWith("/v1/messages")) return { upstream: anthropic, path };
+  if (incoming.pathname.startsWith("/codex/")) return routeFromBase(codex, path);
+  if (incoming.pathname.startsWith("/v1/messages")) return routeFromBase(anthropic, path);
   if (incoming.pathname.startsWith("/chat/completions") || incoming.pathname.startsWith("/responses")) {
-    return { upstream: xai, path };
+    return routeFromBase(xai, path);
   }
 
-  const match = incoming.pathname.match(/^\/route_map\/([^/]+)(\/.*)?$/);
-  if (!match) return;
+  const routePrefix = "/route_map/";
+  if (!rawUrl?.startsWith(routePrefix)) return;
   try {
-    return {
-      upstream: parseUpstream(decodeURIComponent(match[1]), "route_map endpoint"),
-      path: `${match[2] || "/"}${incoming.search}`,
-    };
+    const upstream = parseUpstream(rawUrl.slice(routePrefix.length), "route_map endpoint");
+    return { upstream, path: `${upstream.pathname}${upstream.search}` || "/" };
   } catch {
     return;
   }
-}
-
-function requestPath(route) {
-  const prefix = route.upstream.pathname.replace(/\/+$/, "");
-  return `${prefix}${route.path}` || "/";
 }
 
 function requestHeaders(headers, upstream) {
@@ -65,7 +63,7 @@ export function createProxyServer({
         hostname: route.upstream.hostname,
         port: route.upstream.port || undefined,
         method: req.method,
-        path: requestPath(route),
+        path: route.path,
         headers: requestHeaders(req.headers, route.upstream),
       },
       (upstreamRes) => {
@@ -97,7 +95,7 @@ export function createProxyServer({
 
     upstreamSocket.once("connect", () => {
       const headers = requestHeaders(req.headers, route.upstream);
-      const lines = [`${req.method} ${requestPath(route)} HTTP/${req.httpVersion}`];
+      const lines = [`${req.method} ${route.path} HTTP/${req.httpVersion}`];
       for (const [name, value] of Object.entries(headers)) {
         if (value !== undefined) lines.push(`${name}: ${Array.isArray(value) ? value.join(", ") : value}`);
       }
@@ -129,6 +127,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`  Codex -> ${codexUpstreamBase || DEFAULT_CODEX_UPSTREAM}`);
     console.log(`  Claude -> ${process.env.ANTHROPIC_UPSTREAM_BASE || DEFAULT_ANTHROPIC_UPSTREAM}`);
     console.log(`  xAI -> ${process.env.XAI_UPSTREAM_BASE || DEFAULT_XAI_UPSTREAM}`);
-    console.log("  Custom -> /route_map/<encoded-upstream>");
+    console.log("  Custom -> /route_map/<upstream-url>");
   });
 }

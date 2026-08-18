@@ -53,23 +53,16 @@ Do not specify `api` or `apiKey`. Overriding each built-in provider preserves it
 
 Requests under `/codex/` route to ChatGPT, `/v1/messages` to Anthropic, and `/chat/completions` or `/responses` to xAI. Codex supports WebSocket and SSE; Anthropic and xAI stream over SSE.
 
-## Custom OpenAI-compatible endpoints
+## Custom endpoints
 
-Encode each upstream base URL as one path segment:
-
-```bash
-node -p 'encodeURIComponent("https://api.acme.com/v1")'
-# https%3A%2F%2Fapi.acme.com%2Fv1
-```
-
-Use that value in the custom provider's local `baseUrl`. API keys remain in Pi and are forwarded unchanged:
+Put the upstream base URL directly after `/route_map/`. API keys remain in Pi and are forwarded unchanged:
 
 ```json
 {
   "providers": {
     "acme": {
       "name": "Acme",
-      "baseUrl": "http://127.0.0.1:8787/route_map/https%3A%2F%2Fapi.acme.com%2Fv1",
+      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.acme.com/v1",
       "api": "openai-completions",
       "apiKey": "$ACME_API_KEY",
       "models": [
@@ -78,7 +71,7 @@ Use that value in the custom provider's local `baseUrl`. API keys remain in Pi a
     },
     "other": {
       "name": "Other",
-      "baseUrl": "http://127.0.0.1:8787/route_map/https%3A%2F%2Fgateway.example%2Fopenai%2Fv1",
+      "baseUrl": "http://127.0.0.1:8787/route_map/https://gateway.example/openai/v1",
       "api": "openai-responses",
       "apiKey": "$OTHER_API_KEY",
       "models": [
@@ -89,9 +82,9 @@ Use that value in the custom provider's local `baseUrl`. API keys remain in Pi a
 }
 ```
 
-Set the referenced environment variables before starting Pi. The proxy decodes the upstream, strips `/route_map/<encoded-upstream>`, and appends `/chat/completions` or `/responses`. Adding endpoints requires no proxy restart.
+Set the referenced environment variables before starting Pi. Pi appends its API path to the local `baseUrl`; the proxy strips `/route_map/` and treats everything after it as the complete upstream URL. Adding endpoints requires no proxy restart.
 
-Only `http:` and `https:` targets are accepted. Because this permits arbitrary destinations to local callers, keep the proxy bound to loopback.
+Only `http:` and `https:` targets are accepted. Keep the proxy bound to loopback and connect Pi directly—an intermediary that normalizes `//` could damage the nested upstream URL.
 
 ## Check
 
