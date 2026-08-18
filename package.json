@@ -1,0 +1,9 @@
+{
+  "name": "pi-subscription-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node proxy.mjs",
+    "test": "node --test"
+  }
+}
