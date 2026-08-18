@@ -130,6 +130,83 @@ test("forwards xAI subscription requests for both API adapters", async (t) => {
   assert.ok(received.every(({ headers }) => headers.authorization === "Bearer xai-oauth-token"));
 });
 
+test("routes all four supported custom APIs through one proxy", async (t) => {
+  const received = [];
+  const createUpstream = (name) => http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      received.push({ name, url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString() });
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(`data: ${name}\n\n`);
+    });
+  });
+  const first = createUpstream("first");
+  const second = createUpstream("second");
+  const firstPort = await listen(first);
+  const secondPort = await listen(second);
+  const proxy = createProxyServer();
+  const proxyPort = await listen(proxy);
+  t.after(async () => { await close(proxy); await close(first); await close(second); });
+
+  const targets = [
+    {
+      api: "openai-completions",
+      route: encodeURIComponent(`http://127.0.0.1:${firstPort}/vendor/openai/v1`),
+      path: "/chat/completions?trace=1",
+      auth: ["authorization", "Bearer openai-completions-key"],
+      body: '{"model":"chat-model","messages":[],"stream":true}',
+      response: "data: first\n\n",
+    },
+    {
+      api: "openai-responses",
+      route: encodeURIComponent(`http://127.0.0.1:${secondPort}/api/openai/v1`),
+      path: "/responses",
+      auth: ["authorization", "Bearer openai-responses-key"],
+      body: '{"model":"responses-model","input":"hello","stream":true}',
+      response: "data: second\n\n",
+    },
+    {
+      api: "anthropic-messages",
+      route: encodeURIComponent(`http://127.0.0.1:${firstPort}/vendor/anthropic`),
+      path: "/v1/messages",
+      auth: ["x-api-key", "anthropic-key"],
+      body: '{"model":"claude-model","messages":[],"max_tokens":1,"stream":true}',
+      response: "data: first\n\n",
+    },
+    {
+      api: "google-generative-ai",
+      route: encodeURIComponent(`http://127.0.0.1:${secondPort}/api/google/v1beta`),
+      path: "/models/gemini-model:streamGenerateContent?alt=sse",
+      auth: ["x-goog-api-key", "google-key"],
+      body: '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}',
+      response: "data: second\n\n",
+    },
+  ];
+
+  for (const target of targets) {
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/route_map/${target.route}${target.path}`, {
+      method: "POST",
+      headers: { [target.auth[0]]: target.auth[1], "content-type": "application/json" },
+      body: target.body,
+    });
+    assert.equal(response.status, 200, target.api);
+    assert.equal(await response.text(), target.response, target.api);
+  }
+
+  assert.deepEqual(received.map(({ name, url }) => [name, url]), [
+    ["first", "/vendor/openai/v1/chat/completions?trace=1"],
+    ["second", "/api/openai/v1/responses"],
+    ["first", "/vendor/anthropic/v1/messages"],
+    ["second", "/api/google/v1beta/models/gemini-model:streamGenerateContent?alt=sse"],
+  ]);
+  for (const [index, target] of targets.entries()) {
+    assert.equal(received[index].headers[target.auth[0]], target.auth[1], target.api);
+    assert.equal(received[index].body, target.body, target.api);
+  }
+  assert.equal((await fetch(`http://127.0.0.1:${proxyPort}/route_map/ftp%3A%2F%2Fexample.com/responses`)).status, 404);
+});
+
 test("forwards WebSocket upgrades", async (t) => {
   let received;
   const upstream = http.createServer();

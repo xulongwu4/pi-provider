@@ -16,17 +16,30 @@ function parseUpstream(value, name) {
   return upstream;
 }
 
-function selectUpstream(rawUrl, codex, anthropic, xai) {
-  const { pathname } = new URL(rawUrl || "/", "http://proxy.local");
-  if (pathname.startsWith("/codex/")) return codex;
-  if (pathname.startsWith("/v1/messages")) return anthropic;
-  if (pathname.startsWith("/chat/completions") || pathname.startsWith("/responses")) return xai;
+function selectRoute(rawUrl, codex, anthropic, xai) {
+  const incoming = new URL(rawUrl || "/", "http://proxy.local");
+  const path = `${incoming.pathname}${incoming.search}`;
+  if (incoming.pathname.startsWith("/codex/")) return { upstream: codex, path };
+  if (incoming.pathname.startsWith("/v1/messages")) return { upstream: anthropic, path };
+  if (incoming.pathname.startsWith("/chat/completions") || incoming.pathname.startsWith("/responses")) {
+    return { upstream: xai, path };
+  }
+
+  const match = incoming.pathname.match(/^\/route_map\/([^/]+)(\/.*)?$/);
+  if (!match) return;
+  try {
+    return {
+      upstream: parseUpstream(decodeURIComponent(match[1]), "route_map endpoint"),
+      path: `${match[2] || "/"}${incoming.search}`,
+    };
+  } catch {
+    return;
+  }
 }
 
-function requestPath(rawUrl, upstream) {
-  const incoming = new URL(rawUrl || "/", "http://proxy.local");
-  const prefix = upstream.pathname.replace(/\/+$/, "");
-  return `${prefix}${incoming.pathname}${incoming.search}` || "/";
+function requestPath(route) {
+  const prefix = route.upstream.pathname.replace(/\/+$/, "");
+  return `${prefix}${route.path}` || "/";
 }
 
 function requestHeaders(headers, upstream) {
@@ -43,17 +56,17 @@ export function createProxyServer({
   const xai = parseUpstream(xaiUpstreamBase, "XAI_UPSTREAM_BASE");
 
   const server = http.createServer((req, res) => {
-    const upstream = selectUpstream(req.url, codex, anthropic, xai);
-    if (!upstream) return res.writeHead(404).end("Unknown provider route\n");
+    const route = selectRoute(req.url, codex, anthropic, xai);
+    if (!route) return res.writeHead(404).end("Unknown provider route\n");
 
-    const transport = upstream.protocol === "https:" ? https : http;
+    const transport = route.upstream.protocol === "https:" ? https : http;
     const upstreamReq = transport.request(
       {
-        hostname: upstream.hostname,
-        port: upstream.port || undefined,
+        hostname: route.upstream.hostname,
+        port: route.upstream.port || undefined,
         method: req.method,
-        path: requestPath(req.url, upstream),
-        headers: requestHeaders(req.headers, upstream),
+        path: requestPath(route),
+        headers: requestHeaders(req.headers, route.upstream),
       },
       (upstreamRes) => {
         res.writeHead(
@@ -74,17 +87,17 @@ export function createProxyServer({
   });
 
   server.on("upgrade", (req, socket, head) => {
-    const upstream = selectUpstream(req.url, codex, anthropic, xai);
-    if (!upstream) return socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    const route = selectRoute(req.url, codex, anthropic, xai);
+    if (!route) return socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
 
-    const port = Number(upstream.port) || (upstream.protocol === "https:" ? 443 : 80);
-    const upstreamSocket = upstream.protocol === "https:"
-      ? tls.connect({ host: upstream.hostname, port, servername: upstream.hostname })
-      : net.connect({ host: upstream.hostname, port });
+    const port = Number(route.upstream.port) || (route.upstream.protocol === "https:" ? 443 : 80);
+    const upstreamSocket = route.upstream.protocol === "https:"
+      ? tls.connect({ host: route.upstream.hostname, port, servername: route.upstream.hostname })
+      : net.connect({ host: route.upstream.hostname, port });
 
     upstreamSocket.once("connect", () => {
-      const headers = requestHeaders(req.headers, upstream);
-      const lines = [`${req.method} ${requestPath(req.url, upstream)} HTTP/${req.httpVersion}`];
+      const headers = requestHeaders(req.headers, route.upstream);
+      const lines = [`${req.method} ${requestPath(route)} HTTP/${req.httpVersion}`];
       for (const [name, value] of Object.entries(headers)) {
         if (value !== undefined) lines.push(`${name}: ${Array.isArray(value) ? value.join(", ") : value}`);
       }
@@ -116,5 +129,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`  Codex -> ${codexUpstreamBase || DEFAULT_CODEX_UPSTREAM}`);
     console.log(`  Claude -> ${process.env.ANTHROPIC_UPSTREAM_BASE || DEFAULT_ANTHROPIC_UPSTREAM}`);
     console.log(`  xAI -> ${process.env.XAI_UPSTREAM_BASE || DEFAULT_XAI_UPSTREAM}`);
+    console.log("  Custom -> /route_map/<encoded-upstream>");
   });
 }
