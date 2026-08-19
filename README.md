@@ -1,12 +1,13 @@
-# Pi subscription proxy
+# Pi proxy
 
-A dependency-free reverse proxy for Pi's built-in subscription providers and custom OpenAI-compatible endpoints:
+A dependency-free reverse proxy for Pi. It has one rule: everything after `/route_map/` is the upstream URL.
 
-- `openai-codex` → `https://chatgpt.com/backend-api`
-- `anthropic` → `https://api.anthropic.com`
-- `xai` → `https://api.x.ai/v1`
+```text
+http://127.0.0.1:8787/route_map/https://api.anthropic.com/v1/messages
+                                └─────────── forwarded verbatim ───────────┘
+```
 
-Pi still handles OAuth refresh, request construction, and response parsing. The proxy only selects the backend and forwards HTTP/SSE or WebSocket bytes unchanged.
+Pi still handles OAuth login and refresh, request construction, and response parsing. The proxy only forwards HTTP/SSE or WebSocket bytes unchanged.
 
 ## Run
 
@@ -17,45 +18,34 @@ npm start
 The proxy listens only on `127.0.0.1:8787`. Optional settings:
 
 ```bash
-HOST=127.0.0.1 \
-PORT=8787 \
-CODEX_UPSTREAM_BASE=https://chatgpt.com/backend-api \
-ANTHROPIC_UPSTREAM_BASE=https://api.anthropic.com \
-XAI_UPSTREAM_BASE=https://api.x.ai/v1 \
-npm start
+HOST=127.0.0.1 PORT=8787 npm start
 ```
-
-`UPSTREAM_BASE` remains an alias for `CODEX_UPSTREAM_BASE`.
 
 Do not expose the proxy to other machines: subscription bearer tokens and custom API keys pass through it.
 
 ## Configure Pi
 
-Use Pi's `/login` to sign in to the subscriptions you use. Then merge these overrides into `~/.pi/agent/models.json`:
+Prefix each provider's real base URL with the local proxy. Merge into `~/.pi/agent/models.json`:
 
 ```json
 {
   "providers": {
     "openai-codex": {
-      "baseUrl": "http://127.0.0.1:8787"
+      "baseUrl": "http://127.0.0.1:8787/route_map/https://chatgpt.com/backend-api"
     },
     "anthropic": {
-      "baseUrl": "http://127.0.0.1:8787"
+      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.anthropic.com"
     },
     "xai": {
-      "baseUrl": "http://127.0.0.1:8787"
+      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.x.ai/v1"
     }
   }
 }
 ```
 
-Do not specify `api` or `apiKey`. Overriding each built-in provider preserves its OAuth flow, models, and native API adapter.
+For built-in providers do not specify `api` or `apiKey`; overriding only `baseUrl` preserves each provider's OAuth flow, models, and native API adapter. Sign in first with Pi's `/login`.
 
-Requests under `/codex/` route to ChatGPT, `/v1/messages` to Anthropic, and `/chat/completions` or `/responses` to xAI. Codex supports WebSocket and SSE; Anthropic and xAI stream over SSE.
-
-## Custom endpoints
-
-Put the upstream base URL directly after `/route_map/`. API keys remain in Pi and are forwarded unchanged:
+Custom providers work the same way, with their API keys still resolved by Pi:
 
 ```json
 {
@@ -68,23 +58,30 @@ Put the upstream base URL directly after `/route_map/`. API keys remain in Pi an
       "models": [
         { "id": "acme-model" }
       ]
-    },
-    "other": {
-      "name": "Other",
-      "baseUrl": "http://127.0.0.1:8787/route_map/https://gateway.example/openai/v1",
-      "api": "openai-responses",
-      "apiKey": "$OTHER_API_KEY",
-      "models": [
-        { "id": "other-model" }
-      ]
     }
   }
 }
 ```
 
-Set the referenced environment variables before starting Pi. Pi appends its API path to the local `baseUrl`; the proxy strips `/route_map/` and treats everything after it as the complete upstream URL. Adding endpoints requires no proxy restart.
+Set any referenced environment variables before starting Pi. Adding or changing endpoints requires no proxy restart.
 
-Only `http:` and `https:` targets are accepted. Keep the proxy bound to loopback and connect Pi directly—an intermediary that normalizes `//` could damage the nested upstream URL.
+## How a request flows
+
+Pi appends its adapter path to the configured `baseUrl`, so `openai-completions` sends:
+
+```text
+/route_map/https://api.acme.com/v1/chat/completions
+```
+
+The proxy strips `/route_map/`, parses the remainder as the complete target, and forwards the method, path, query string, headers, and body unchanged:
+
+```text
+https://api.acme.com/v1/chat/completions
+```
+
+Include the upstream's own version prefix only when that upstream needs it — `/v1` for xAI and most OpenAI-compatible servers, none for Anthropic, `/backend-api` for Codex. SSE and WebSocket upgrades are both proxied.
+
+Only `http:` and `https:` targets are accepted; anything else returns 404. Keep the proxy bound to loopback and connect Pi directly — an intermediary that normalizes `//` could damage the nested upstream URL.
 
 ## Check
 
