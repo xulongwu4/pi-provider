@@ -1,9 +1,9 @@
 # Pi proxy
 
-A dependency-free reverse proxy for Pi. It has one rule: everything after `/route_map/` is the upstream URL.
+A dependency-free reverse proxy for Pi. It has one rule: everything after `/route_to/` is the upstream URL.
 
 ```text
-http://127.0.0.1:8787/route_map/https://api.anthropic.com/v1/messages
+http://127.0.0.1:8787/route_to/https://api.anthropic.com/v1/messages
                                 └─────────── forwarded verbatim ───────────┘
 ```
 
@@ -31,13 +31,13 @@ Prefix each provider's real base URL with the local proxy. Merge into `~/.pi/age
 {
   "providers": {
     "openai-codex": {
-      "baseUrl": "http://127.0.0.1:8787/route_map/https://chatgpt.com/backend-api"
+      "baseUrl": "http://127.0.0.1:8787/route_to/https://chatgpt.com/backend-api"
     },
     "anthropic": {
-      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.anthropic.com"
+      "baseUrl": "http://127.0.0.1:8787/route_to/https://api.anthropic.com"
     },
     "xai": {
-      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.x.ai/v1"
+      "baseUrl": "http://127.0.0.1:8787/route_to/https://api.x.ai/v1"
     }
   }
 }
@@ -52,7 +52,7 @@ Custom providers work the same way, with their API keys still resolved by Pi:
   "providers": {
     "acme": {
       "name": "Acme",
-      "baseUrl": "http://127.0.0.1:8787/route_map/https://api.acme.com/v1",
+      "baseUrl": "http://127.0.0.1:8787/route_to/https://api.acme.com/v1",
       "api": "openai-completions",
       "apiKey": "$ACME_API_KEY",
       "models": [
@@ -70,10 +70,10 @@ Set any referenced environment variables before starting Pi. Adding or changing 
 Pi appends its adapter path to the configured `baseUrl`, so `openai-completions` sends:
 
 ```text
-/route_map/https://api.acme.com/v1/chat/completions
+/route_to/https://api.acme.com/v1/chat/completions
 ```
 
-The proxy strips `/route_map/`, parses the remainder as the complete target, and forwards the method, path, query string, headers, and body unchanged:
+The proxy strips `/route_to/`, parses the remainder as the complete target, and forwards the method, path, query string, headers, and body unchanged:
 
 ```text
 https://api.acme.com/v1/chat/completions

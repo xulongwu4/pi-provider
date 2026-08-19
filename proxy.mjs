@@ -4,7 +4,7 @@ import net from "node:net";
 import tls from "node:tls";
 import { pathToFileURL } from "node:url";
 
-const ROUTE_PREFIX = "/route_map/";
+const ROUTE_PREFIX = "/route_to/";
 
 function selectRoute(rawUrl) {
   if (!rawUrl?.startsWith(ROUTE_PREFIX)) return;

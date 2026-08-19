@@ -37,7 +37,7 @@ test("forwards binary bodies, query strings, and SSE responses unchanged", async
   t.after(async () => { await close(proxy); await close(upstream); });
 
   const target = `http://127.0.0.1:${upstreamPort}/backend-api/codex/responses?stream=1`;
-  const response = await fetch(`http://127.0.0.1:${proxyPort}/route_map/${target}`, {
+  const response = await fetch(`http://127.0.0.1:${proxyPort}/route_to/${target}`, {
     method: "POST",
     headers: {
       authorization: "Bearer test-token",
@@ -111,7 +111,7 @@ test("routes all four supported APIs from raw upstream URLs", async (t) => {
   ];
 
   for (const target of targets) {
-    const response = await fetch(`http://127.0.0.1:${proxyPort}/route_map/${target.target}`, {
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/route_to/${target.target}`, {
       method: "POST",
       headers: { [target.auth[0]]: target.auth[1], "content-type": "application/json" },
       body: target.body,
@@ -141,8 +141,8 @@ test("rejects requests without a routable upstream", async (t) => {
     "/codex/responses",
     "/v1/messages",
     "/chat/completions",
-    "/route_map/ftp://example.com/responses",
-    "/route_map/not-a-url",
+    "/route_to/ftp://example.com/responses",
+    "/route_to/not-a-url",
   ]) {
     assert.equal((await fetch(`http://127.0.0.1:${proxyPort}${path}`)).status, 404, path);
   }
@@ -165,7 +165,7 @@ test("forwards WebSocket upgrades", async (t) => {
     const socket = netConnect(proxyPort);
     let data = "";
     socket.on("connect", () => socket.write(
-      `GET /route_map/${target} HTTP/1.1\r\n` +
+      `GET /route_to/${target} HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${proxyPort}\r\n` +
       "Connection: Upgrade\r\nUpgrade: websocket\r\n" +
       "Authorization: Bearer test-token\r\n" +
