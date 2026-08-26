@@ -132,6 +132,36 @@ test("routes all four supported APIs from raw upstream URLs", async (t) => {
   }
 });
 
+test("restricts configured upstreams and strips Cloud Run authentication", async (t) => {
+  let receivedHeaders;
+  const upstream = http.createServer((req, res) => {
+    receivedHeaders = req.headers;
+    res.end("ok");
+  });
+  const upstreamPort = await listen(upstream);
+  const allowedOrigin = `http://127.0.0.1:${upstreamPort}`;
+  const proxy = createProxyServer({ allowedOrigins: new Set([allowedOrigin]) });
+  const proxyPort = await listen(proxy);
+  t.after(async () => { await close(proxy); await close(upstream); });
+
+  const response = await fetch(`http://127.0.0.1:${proxyPort}/route_to/${allowedOrigin}/messages`, {
+    headers: {
+      authorization: "Bearer provider-token",
+      "x-serverless-authorization": "Bearer cloud-run-token",
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(receivedHeaders.authorization, "Bearer provider-token");
+  assert.equal(receivedHeaders["x-serverless-authorization"], undefined);
+  assert.equal((await fetch(
+    `http://127.0.0.1:${proxyPort}/route_to/http://localhost:${upstreamPort}/messages`,
+  )).status, 404);
+  assert.equal((await fetch(
+    `http://127.0.0.1:${proxyPort}/route_to/http://metadata.google.internal/computeMetadata/v1/`,
+  )).status, 404);
+});
+
 test("rejects requests without a routable upstream", async (t) => {
   const proxy = createProxyServer();
   const proxyPort = await listen(proxy);
