@@ -27,6 +27,22 @@ Keep the proxy on loopback unless it has both access control and an upstream all
 
 Cloud Run supplies `PORT`; the proxy detects Cloud Run and listens on `0.0.0.0`. Exposed instances refuse to start unless `ALLOWED_ORIGINS` contains the exact upstream origins they may contact.
 
+For repeatable deployment, run the idempotent script from this repository. It defaults to the active `gcloud` project and account:
+
+```bash
+./scripts/deploy-cloud-run.sh
+```
+
+Override settings through environment variables, for example:
+
+```bash
+PROJECT_ID=cliproxyapi-vm REGION=us-central1 ./scripts/deploy-cloud-run.sh
+```
+
+Run `./scripts/deploy-cloud-run.sh --help` for every override. The script enables required APIs, creates the no-role runtime identity when absent, refuses identities with direct project roles, deploys privately, grants the selected invoker, and removes public invocation if previously enabled. Its defaults include all 35 fixed inference origins in Pi's installed built-in catalog, plus `https://api.cline.bot` for Cline/ClinePass and `https://server.codeium.com` for Windsurf (37 exact origins total). Azure resources, Vertex locations, additional Bedrock regions, GitHub Enterprise, and other custom providers must be appended explicitly through `ALLOWED_ORIGINS`; wildcard hosts are intentionally unsupported.
+
+The equivalent manual steps are below.
+
 Create a dedicated runtime identity. A new user-managed service account has no project roles by default, which is all this proxy needs:
 
 ```bash
@@ -41,6 +57,8 @@ gcloud iam service-accounts create pi-proxy-runner \
 Deploy privately using that identity:
 
 ```bash
+ALLOWED_ORIGINS="$(./scripts/deploy-cloud-run.sh --print-allowed-origins | paste -sd ' ' -)"
+
 gcloud run deploy pi-proxy \
   --project="$PROJECT_ID" \
   --source=. \
@@ -48,7 +66,7 @@ gcloud run deploy pi-proxy \
   --service-account="$RUNTIME_SA" \
   --no-allow-unauthenticated \
   --timeout=3600 \
-  --set-env-vars='ALLOWED_ORIGINS=https://chatgpt.com https://api.openai.com https://api.anthropic.com https://api.x.ai https://generativelanguage.googleapis.com'
+  --set-env-vars="ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
 ```
 
 The account performing the deployment needs permission to act as `RUNTIME_SA`; project owners usually already have it. If deployment reports `iam.serviceAccounts.actAs` is missing, grant the deployer `roles/iam.serviceAccountUser` on this service account—not a project-wide role.
