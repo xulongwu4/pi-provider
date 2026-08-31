@@ -148,6 +148,47 @@ test("rejects requests without a routable upstream", async (t) => {
   }
 });
 
+test("closes the upstream response when a streaming client disconnects", async (t) => {
+  let resolveUpstreamClosed;
+  const upstreamClosed = new Promise((resolve) => { resolveUpstreamClosed = resolve; });
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("data: first\n\n");
+    const timer = setInterval(() => res.write("data: more\n\n"), 10);
+    res.on("close", () => {
+      clearInterval(timer);
+      resolveUpstreamClosed();
+    });
+  });
+  const upstreamPort = await listen(upstream);
+  const proxy = createProxyServer();
+  const proxyPort = await listen(proxy);
+  t.after(async () => { await close(proxy); await close(upstream); });
+
+  const controller = new AbortController();
+  const response = await fetch(
+    `http://127.0.0.1:${proxyPort}/route_to/http://127.0.0.1:${upstreamPort}/stream`,
+    { signal: controller.signal },
+  );
+  await response.body.getReader().read();
+  controller.abort();
+
+  let timeout;
+  try {
+    await Promise.race([
+      upstreamClosed,
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("upstream remained open after downstream disconnect")),
+          300,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 test("forwards WebSocket upgrades", async (t) => {
   let received;
   const upstream = http.createServer();

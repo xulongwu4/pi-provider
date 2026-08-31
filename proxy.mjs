@@ -42,10 +42,14 @@ export function createProxyServer() {
           upstreamRes.statusMessage,
           upstreamRes.headers,
         );
+        upstreamRes.on("error", (error) => res.destroy(error));
         upstreamRes.pipe(res);
       },
     );
 
+    res.on("close", () => {
+      if (!res.writableEnded) upstreamReq.destroy();
+    });
     upstreamReq.on("error", (error) => {
       if (res.headersSent) return res.destroy(error);
       res.writeHead(502).end(`Upstream request failed: ${error.message}\n`);
