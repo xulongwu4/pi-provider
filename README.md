@@ -9,8 +9,6 @@ http://127.0.0.1:8787/route_to/https://api.anthropic.com/v1/messages
 
 Pi still handles OAuth login and refresh, request construction, and response parsing. The proxy only forwards HTTP/SSE or WebSocket bytes unchanged.
 
-The proxy speaks HTTP/1.1 and HTTP/2 on the same port. HTTP/2 clients (prior-knowledge `h2c`, as used by `pi-cursor`'s `node:http2` transport) are forwarded to the upstream over HTTP/2 — required for HTTP/2-only upstreams like Cursor's — while HTTP/1.1 clients are forwarded over HTTP/1.1. Route pi-cursor through the proxy by pointing its agent URL at it, e.g. `PI_CURSOR_AGENT_URL=http://127.0.0.1:8787/route_to/https://agentn.us.api5.cursor.sh`.
-
 ## Run
 
 ```bash
