@@ -208,3 +208,59 @@ test("classifies the protocol even when the first bytes are fragmented", async (
   h1Socket.destroy();
   assert.match(h1Reply, /^HTTP\/1\.1 404/);
 });
+
+async function waitFor(predicate, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for the upstream to answer an open request");
+}
+
+test("an HTTP/1.1 hop forces an HTTP/2 upstream and streams a request that never ends", async (t) => {
+  const clientFrames = [];
+  let scheme;
+  const { upstream, port } = await listenH2cUpstream((req, res) => {
+    scheme = req.headers[":scheme"];
+    // Answer before the request body ends, exactly like a Connect bidi stream.
+    res.writeHead(200, { "content-type": "application/connect+proto" });
+    res.write("server-frame-one");
+    req.on("data", (chunk) => {
+      clientFrames.push(chunk.toString());
+      res.write(`echo:${chunk.length}`);
+    });
+  });
+  const proxy = createProxyServer();
+  const proxyPort = await listen(proxy);
+  const socket = net.connect(proxyPort, "127.0.0.1");
+  const received = [];
+  socket.on("data", (chunk) => received.push(chunk.toString("latin1")));
+  t.after(async () => {
+    socket.destroy();
+    await close(proxy);
+    await close(upstream);
+  });
+  await new Promise((resolve) => socket.once("connect", resolve));
+
+  socket.write(
+    `POST /route_to/http://127.0.0.1:${port}/agent.v1.AgentService/Run HTTP/1.1\r\n` +
+      "Host: 127.0.0.1\r\n" +
+      "x-pi-force-http2: 1\r\n" +
+      "content-type: application/connect+proto\r\n" +
+      "Transfer-Encoding: chunked\r\n\r\n",
+  );
+  const frame = "client-frame";
+  socket.write(`${frame.length.toString(16)}\r\n${frame}\r\n`);
+
+  // No terminating 0-length chunk: the request stays open for the whole exchange.
+  await waitFor(() => received.join("").includes("echo:"));
+  const text = received.join("");
+  assert.equal(scheme, "http");
+  assert.deepEqual(clientFrames, [frame]);
+  assert.match(text, /^HTTP\/1\.1 200 OK/);
+  assert.match(text, /server-frame-one/);
+  assert.match(text, /echo:12/);
+  assert.doesNotMatch(text, /x-pi-force-http2/);
+});
+

@@ -8,7 +8,12 @@ import { pathToFileURL } from "node:url";
 const ROUTE_PREFIX = "/route_to/";
 
 // Connection-specific headers are forbidden in HTTP/2; Host becomes :authority.
+// Lets an HTTP/1.1 hop (the Pub/Sub bridge agent, which needs a duplex request body) still get
+// an HTTP/2 upstream, required by HTTP/2-only APIs like Cursor.
+const FORCE_HTTP2_HEADER = "x-pi-force-http2";
+
 const H2_FORBIDDEN = [
+  FORCE_HTTP2_HEADER,
   "host",
   "connection",
   "keep-alive",
@@ -107,7 +112,9 @@ function handleRequest(req, res) {
   const route = selectRoute(req.url);
   if (!route) return res.writeHead(404).end(`Expected ${ROUTE_PREFIX}<http(s)-upstream-url>\n`);
   // Mirror the client's HTTP version: HTTP/2-only upstreams (e.g. Cursor) reject HTTP/1.1.
-  if (req.httpVersion === "2.0") return forwardOverHttp2(req, res, route);
+  if (req.httpVersion === "2.0" || req.headers[FORCE_HTTP2_HEADER] === "1") {
+    return forwardOverHttp2(req, res, route);
+  }
   return forwardOverHttp1(req, res, route);
 }
 
